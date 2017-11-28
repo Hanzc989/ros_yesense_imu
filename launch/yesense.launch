@@ -1,0 +1,6 @@
+<launch>
+    <node name="yesense" pkg="yesense_imu" type="yesense_node" output="screen">
+        <param name="port" value="/dev/ttyUSB0" />
+        <param name="baudrate" value=460800 />
+    </node>
+</launch>
