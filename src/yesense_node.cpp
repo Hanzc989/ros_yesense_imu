@@ -1,6 +1,7 @@
 //////////////////////////////////////////////
 //* This is ros driver for Yesense IMU
 //* Author: ZheWang
+//* Email:wangzhe936@outlook.com
 //* Created on 2017.11.28
 //////////////////////////////////////////////
 
@@ -13,7 +14,7 @@
 class Yesense{
     
     public:
-        Yesense(const std::string port="", uint32_t baudrate=9600, std::string frameID="imu");
+        Yesense(const std::string port, uint32_t baudrate, std::string frameID);
         ~Yesense();
         bool checkAndOpen();
         sensor_msgs::Imu processDataToMsg();
@@ -23,10 +24,13 @@ class Yesense{
         sensor_msgs::Imu imu;
         serial::Serial yesense_port;
         float accl[3], angv[3], ang[3];
+    public:
+        bool mutex;
     
 };
 
 Yesense::Yesense(const std::string port, uint32_t baudrate, std::string frameID)
+    :mutex(false)
 {
     imu.header.frame_id = frameID;
     yesense_port.setPort(port);
@@ -56,6 +60,8 @@ sensor_msgs::Imu Yesense::processDataToMsg()
     yesense_port.read(headerAndTail,1);
     if (headerAndTail[0]==0x59) 
     {		
+        // ROS_WARN("NEW MSG!");
+        mutex = true;
         readData(5,&headerAndTail[1]);
         for(int j = 0; j < 6; j++)
         {
@@ -83,7 +89,7 @@ void Yesense::DecodeIMUData(unsigned char *reTemp)
                accl[0] = (long(reTemp [5]<<24| reTemp [4]<<16| reTemp [3]<<8|reTemp [2]))*0.000001;
                accl[1] = (long(reTemp [9]<<24| reTemp [8]<<16| reTemp [7]<<8|reTemp [6]))*0.000001;
                accl[2] = (long(reTemp [13]<<24| reTemp [12]<<16| reTemp [11]<<8|reTemp [10]))*0.000001;
-               ROS_INFO("Acceleration x %f y %f z %f", accl[0], accl[1], accl[2]);
+            //    ROS_INFO("Acceleration x %f y %f z %f", accl[0], accl[1], accl[2]);
                imu.header.stamp = ros::Time::now();
                imu.linear_acceleration.x = accl[0];
                imu.linear_acceleration.y = accl[1];
@@ -96,7 +102,7 @@ void Yesense::DecodeIMUData(unsigned char *reTemp)
                angv[0] = (long(reTemp [5]<<24| reTemp [4]<<16| reTemp [3]<<8|reTemp [2]))*0.000001;
                angv[1] = (long(reTemp [9]<<24| reTemp [8]<<16| reTemp [7]<<8|reTemp [6]))*0.000001;
                angv[2] = (long(reTemp [13]<<24| reTemp [12]<<16| reTemp [11]<<8|reTemp [10]))*0.000001;
-               ROS_INFO("Angular velocity x %f y %f z %f", angv[0], angv[1], angv[2]);
+            //    ROS_INFO("Angular velocity x %f y %f z %f", angv[0], angv[1], angv[2]);
                imu.angular_velocity.x = angv[0];
                imu.angular_velocity.y = angv[1];
                imu.angular_velocity.z = angv[2];
@@ -108,7 +114,7 @@ void Yesense::DecodeIMUData(unsigned char *reTemp)
                ang[0] = (long(reTemp [5]<<24| reTemp [4]<<16| reTemp [3]<<8|reTemp [2]))*0.000001;
                ang[1] = (long(reTemp [9]<<24| reTemp [8]<<16| reTemp [7]<<8|reTemp [6]))*0.000001;
                ang[2] = (long(reTemp [13]<<24| reTemp [12]<<16| reTemp [11]<<8|reTemp [10]))*0.000001;
-               ROS_INFO("Angle x %f y %f z %f", ang[0], ang[1], ang[2]);
+            //    ROS_INFO("Angle x %f y %f z %f", ang[0], ang[1], ang[2]);
                float fCosHRoll = cos(ang[0] * .5f);
                float fSinHRoll = sin(ang[0] * .5f);
                float fCosHPitch = cos(ang[1] * .5f);
@@ -128,37 +134,45 @@ void Yesense::DecodeIMUData(unsigned char *reTemp)
 
 void Yesense::readData(int size,unsigned char * data)
 {
-    int head = 0, end = 0;
+    int head = 0, end = 0 ,size_temp = size;
     while(head<size)
     {
-            end = yesense_port.read(&data[head], size); 
-            if(end==size)
-                    head+=size;
+            end = yesense_port.read(&data[head], size_temp); 
+            if(end == size_temp)
+                    head += size_temp;
+            else if(end != EOF){
+                int mid = head;
+                head += end;
+                if((head + size_temp) >= size)
+                    size_temp = size-head;
+            }
     }
 }
 
 int main(int argc, char ** argv)
 {
     ros::init(argc,argv,"Yesense_node");
-    ros::NodeHandle n;
+    ros::NodeHandle n("~");
     std::string port,frame_id;
-    int baudrate,Hz;
+    int baudrate;
     if(!n.getParam("port", port))
         port = "/dev/ttyUSB0";
     if(!n.getParam("baudrate", baudrate))
         baudrate = 460800;
     if(!n.getParam("frame_id", frame_id))
         frame_id = "imu";
-    if(!n.getParam("Hz", Hz))
-        Hz = 2000;
     Yesense yesense(port,baudrate,frame_id);
     yesense.checkAndOpen();
     ros::Publisher imu_data_pub = n.advertise<sensor_msgs::Imu>("/Yesense/imu_data", 10);
-    ros::Rate loopRate(Hz);
+    ros::Rate loopRate(150);//This rate can't lower than 110
     while(ros::ok())
     {
         sensor_msgs::Imu imu_msg = yesense.processDataToMsg();
-        imu_data_pub.publish(imu_msg);
+        if(yesense.mutex)
+        {
+            imu_data_pub.publish(imu_msg);
+            yesense.mutex = false;
+        }
         ros::spinOnce();
         loopRate.sleep();
     }

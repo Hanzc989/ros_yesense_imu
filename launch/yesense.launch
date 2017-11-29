@@ -3,6 +3,5 @@
         <param name="port" value="/dev/ttyUSB0" />
         <param name="baudrate" value="460800" />
         <param name="frame_id" value="imu" />
-        <param name="Hz" value="2000" />
     </node>
 </launch>
