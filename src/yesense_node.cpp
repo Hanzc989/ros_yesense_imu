@@ -13,7 +13,7 @@
 class Yesense{
     
     public:
-        Yesense(const std::string &port="", uint32_t baudrate=9600);
+        Yesense(const std::string port="", uint32_t baudrate=9600, std::string frameID="imu");
         ~Yesense();
         bool checkAndOpen();
         sensor_msgs::Imu processDataToMsg();
@@ -26,8 +26,9 @@ class Yesense{
     
 };
 
-Yesense::Yesense(const std::string &port, uint32_t baudrate)
+Yesense::Yesense(const std::string port, uint32_t baudrate, std::string frameID)
 {
+    imu.header.frame_id = frameID;
     yesense_port.setPort(port);
     yesense_port.setBaudrate(baudrate);
 }
@@ -138,18 +139,22 @@ void Yesense::readData(int size,unsigned char * data)
 
 int main(int argc, char ** argv)
 {
+    ros::init(argc,argv,"Yesense_node");
     ros::NodeHandle n;
-    std::string port;
-    int baudrate;
+    std::string port,frame_id;
+    int baudrate,Hz;
     if(!n.getParam("port", port))
         port = "/dev/ttyUSB0";
     if(!n.getParam("baudrate", baudrate))
         baudrate = 460800;
-    ros::init(argc,argv,"Yesense_node");
-    Yesense yesense(port,baudrate);
+    if(!n.getParam("frame_id", frame_id))
+        frame_id = "imu";
+    if(!n.getParam("Hz", Hz))
+        Hz = 2000;
+    Yesense yesense(port,baudrate,frame_id);
     yesense.checkAndOpen();
     ros::Publisher imu_data_pub = n.advertise<sensor_msgs::Imu>("/Yesense/imu_data", 10);
-    ros::Rate loopRate(300);
+    ros::Rate loopRate(Hz);
     while(ros::ok())
     {
         sensor_msgs::Imu imu_msg = yesense.processDataToMsg();
